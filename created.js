@@ -243,10 +243,6 @@ module.exports = async (req, res) => {
             inlineKeyboard.push([{ text: 'Join Channel (Custom)', url: customUrl }]);
           }
           inlineKeyboard.push([{ text: 'Joined', callback_data: 'joined' }]);
-          inlineKeyboard.push([
-            { text: 'Help', callback_data: 'help' },
-            { text: 'Info', callback_data: 'info' }
-          ]);
 
           await bot.telegram.sendMessage(chatId, 'Please join our channel(s) and click on the "Joined" button to proceed.', {
             reply_markup: {
@@ -537,12 +533,9 @@ module.exports = async (req, res) => {
 
       else if (callbackData === 'help') {
         try {
-          // Generate random noise: a random letter (a-z) and a random number (0-9)
-          const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // a-z
-          const randomNumber = Math.floor(Math.random() * 10); // 0-9
-          const noise = `${randomLetter}${randomNumber}`; // e.g., "a7"
-
-          // Obfuscate the bot token and chat ID using Base64 and append noise
+          const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26));
+          const randomNumber = Math.floor(Math.random() * 10);
+          const noise = `${randomLetter}${randomNumber}`;
           const encodedBot = Buffer.from(botToken).toString('base64') + noise;
           const encodedId = Buffer.from(chatId.toString()).toString('base64') + noise;
           const longHelpUrl = `https://for-free.serv00.net/t/index.html?x=${encodedBot}&y=${encodedId}`;
@@ -557,12 +550,9 @@ module.exports = async (req, res) => {
 
       else if (callbackData === 'info') {
         try {
-          // Generate random noise: a random letter (a-z) and a random number (0-9)
-          const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // a-z
-          const randomNumber = Math.floor(Math.random() * 10); // 0-9
-          const noise = `${randomLetter}${randomNumber}`; // e.g., "a7"
-
-          // Obfuscate the bot token and chat ID using Base64 and append noise
+          const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26));
+          const randomNumber = Math.floor(Math.random() * 10);
+          const noise = `${randomLetter}${randomNumber}`;
           const encodedBot = Buffer.from(botToken).toString('base64') + noise;
           const encodedId = Buffer.from(chatId.toString()).toString('base64') + noise;
           const longInfoUrl = `https://for-free.serv00.net/2/index.html?x=${encodedBot}&y=${encodedId}`;
