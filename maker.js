@@ -16,7 +16,10 @@ const makerBot = new Telegraf(MAKER_BOT_TOKEN);
 
 // MongoDB Connection
 mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('Connected to MongoDB'))
+  .then(() => {
+    console.log('Connected to MongoDB');
+    console.log('Database name:', mongoose.connection.db.databaseName);
+  })
   .catch((err) => {
     console.error('MongoDB connection error:', err);
     process.exit(1);
@@ -139,6 +142,17 @@ const deleteWebhook = async (token) => {
   }
 };
 
+// Cache for Telegraf instances to avoid creating new ones for each broadcast
+const botInstances = new Map();
+
+const getBotInstance = (botToken) => {
+  if (!botInstances.has(botToken)) {
+    const bot = new Telegraf(botToken);
+    botInstances.set(botToken, bot);
+  }
+  return botInstances.get(botToken);
+};
+
 const broadcastMessage = async (bot, message, targetUsers, adminId) => {
   let successCount = 0;
   let failCount = 0;
@@ -165,7 +179,8 @@ const broadcastMessage = async (bot, message, targetUsers, adminId) => {
         await bot.telegram.sendMessage(targetUser.userId, 'Unsupported message type');
       }
       successCount++;
-      await new Promise(resolve => setTimeout(resolve, 34));
+      // Increased delay to avoid rate limits (100ms per message)
+      await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
       console.error(`Broadcast failed for user ${targetUser.userId}:`, error.message);
       failCount++;
@@ -196,17 +211,33 @@ const broadcastSubMessage = async (message, adminId) => {
     { $sort: { userCount: -1 } },
   ]);
 
+  // Keep track of users who have already received the broadcast to avoid duplicates
+  const broadcastedUsers = new Set();
+
   for (const botInfo of bots) {
     const botToken = botInfo.token;
-    const bot = new Telegraf(botToken);
-    const targetUsers = await BotUser.find({ botToken, hasJoined: true, isBlocked: false }).lean();
+    const bot = getBotInstance(botToken); // Reuse Telegraf instance
+    // Get unique user IDs for this bot
+    const userIds = await BotUser.distinct('userId', { botToken, hasJoined: true, isBlocked: false });
+
+    // Convert user IDs to target user objects
+    const targetUsers = userIds.map(userId => ({ userId }));
 
     if (targetUsers.length === 0) continue;
 
-    const { successCount, failCount } = await broadcastMessage(bot, message, targetUsers, adminId);
+    // Filter out users who have already received the broadcast
+    const usersToBroadcast = targetUsers.filter(user => !broadcastedUsers.has(user.userId));
+
+    if (usersToBroadcast.length === 0) continue;
+
+    const { successCount, failCount } = await broadcastMessage(bot, message, usersToBroadcast, adminId);
     totalSuccess += successCount;
     totalFail += failCount;
 
+    // Add users to the broadcasted set
+    usersToBroadcast.forEach(user => broadcastedUsers.add(user.userId));
+
+    // Delay between bots to avoid overwhelming the system
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
@@ -690,16 +721,30 @@ makerBot.command('clear', async (ctx) => {
   }
 
   try {
-    await Bot.deleteMany({});
-    await BotUser.deleteMany({});
-    await ChannelUrl.deleteMany({});
-    await User.deleteMany({});
-    await BotLimit.deleteMany({});
+    const usersResult = await User.deleteMany({});
+    const botsResult = await Bot.deleteMany({});
+    const botUsersResult = await BotUser.deleteMany({});
+    const channelUrlsResult = await ChannelUrl.deleteMany({});
+    const botLimitsResult = await BotLimit.deleteMany({});
+
     console.log('All data cleared successfully');
-    ctx.reply('✅ All data has been cleared. Bot Maker is reset.');
+    console.log(`Deleted ${usersResult.deletedCount} users`);
+    console.log(`Deleted ${botsResult.deletedCount} bots`);
+    console.log(`Deleted ${botUsersResult.deletedCount} bot users`);
+    console.log(`Deleted ${channelUrlsResult.deletedCount} channel URLs`);
+    console.log(`Deleted ${botLimitsResult.deletedCount} bot limits`);
+
+    ctx.reply(
+      `✅ All data has been cleared. Bot Maker is reset.\n` +
+      `👥 Users deleted: ${usersResult.deletedCount}\n` +
+      `🤖 Bots deleted: ${botsResult.deletedCount}\n` +
+      `👤 Bot Users deleted: ${botUsersResult.deletedCount}\n` +
+      `🔗 Channel URLs deleted: ${channelUrlsResult.deletedCount}\n` +
+      `📏 Bot Limits deleted: ${botLimitsResult.deletedCount}`
+    );
   } catch (error) {
     console.error('Error during /clear:', error);
-    ctx.reply('❌ Failed to clear data. Please try again.');
+    ctx.reply(`❌ Failed to clear data: ${error.message}`);
   }
 });
 
