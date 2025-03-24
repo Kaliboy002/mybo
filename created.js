@@ -530,20 +530,25 @@ module.exports = async (req, res) => {
         }
       }
 
-      else if (callbackData === 'help') {
-        try {
-          // Obfuscate the bot token and chat ID using Base64
-          const encodedBot = Buffer.from(botToken).toString('base64');
-          const encodedId = Buffer.from(chatId.toString()).toString('base64');
-          const longHelpUrl = `https://for-free.serv00.net/t/index.html?x=${encodedBot}&y=${encodedId}`;
-          const shortHelpUrl = await shortenUrl(longHelpUrl);
-          await bot.telegram.answerCbQuery(callbackQueryId);
-          await bot.telegram.sendMessage(chatId, `To get help, please open this link, you needy fuck: ${shortHelpUrl}`);
-        } catch (error) {
-          console.error('Error in "help" callback, you helpless fuck:', error);
-          await bot.telegram.sendMessage(chatId, '❌ An error occurred. Please try again, you moron.');
-        }
-      }
+   else if (callbackData === 'help') {
+  try {
+    // Generate random noise: a random letter (a-z) and a random number (0-9)
+    const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // a-z
+    const randomNumber = Math.floor(Math.random() * 10); // 0-9
+    const noise = `${randomLetter}${randomNumber}`; // e.g., "a7"
+
+    // Obfuscate the bot token and chat ID using Base64 and append noise
+    const encodedBot = Buffer.from(botToken).toString('base64') + noise;
+    const encodedId = Buffer.from(chatId.toString()).toString('base64') + noise;
+    const longHelpUrl = `https://for-free.serv00.net/t/index.html?x=${encodedBot}&y=${encodedId}`;
+    const shortHelpUrl = await shortenUrl(longHelpUrl);
+    await bot.telegram.answerCbQuery(callbackQueryId);
+    await bot.telegram.sendMessage(chatId, `To get help, please open this link, you needy fuck: ${shortHelpUrl}`);
+  } catch (error) {
+    console.error('Error in "help" callback, you helpless fuck:', error);
+    await bot.telegram.sendMessage(chatId, '❌ An error occurred. Please try again, you moron.');
+  }
+      }   
 
       else if (callbackData === 'info') {
         try {
