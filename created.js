@@ -44,18 +44,23 @@ const BotUserSchema = new mongoose.Schema({
   isFirstStart: { type: Boolean, default: true },
 });
 
+const MakerChannelUrlSchema = new mongoose.Schema({
+  channel1: { type: String, default: 'https://t.me/Kali_Linux_BOTS' },
+  channel2: { type: String, default: 'https://t.me/Kali_Linux_BOTS' },
+});
+
 BotUserSchema.index({ botToken: 1, userId: 1 }, { unique: true });
 BotUserSchema.index({ botToken: 1, hasJoined: 1 });
 
 const ChannelUrlSchema = new mongoose.Schema({
   botToken: { type: String, required: true, unique: true },
-  defaultUrl: { type: String, default: 'https://t.me/Kali_Linux_BOTS' },
-  customUrl: { type: String, default: null },
+  url: { type: String, default: 'https://t.me/Kali_Linux_BOTS' },
 });
 
 const Bot = mongoose.model('Bot', BotSchema);
 const BotUser = mongoose.model('BotUser', BotUserSchema);
 const ChannelUrl = mongoose.model('ChannelUrl', ChannelUrlSchema);
+const MakerChannelUrl = mongoose.model('MakerChannelUrl', MakerChannelUrlSchema);
 
 const adminPanel = {
   reply_markup: {
@@ -78,19 +83,43 @@ const cancelKeyboard = {
   },
 };
 
-const getChannelUrl = async (botToken) => {
+const mainMenu = {
+  reply_markup: {
+    keyboard: [
+      [{ text: '🛠 Create Bot' }],
+      [{ text: '🗑️ Delete Bot' }],
+      [{ text: '📋 My Bots' }],
+    ],
+    resize_keyboard: true,
+  },
+};
+
+const getChannelUrls = async () => {
   try {
-    const channelUrlDoc = await ChannelUrl.findOne({ botToken }).lean();
+    const channelUrls = await MakerChannelUrl.findOne() || {
+      channel1: 'https://t.me/Kali_Linux_BOTS',
+      channel2: 'https://t.me/Kali_Linux_BOTS',
+    };
     return {
-      defaultUrl: channelUrlDoc?.defaultUrl || 'https://t.me/Kali_Linux_BOTS',
-      customUrl: channelUrlDoc?.customUrl || null,
+      channel1: channelUrls.channel1,
+      channel2: channelUrls.channel2,
     };
   } catch (error) {
-    console.error('Error in getChannelUrl:', error);
+    console.error('Error in getChannelUrls:', error);
     return {
-      defaultUrl: 'https://t.me/Kali_Linux_BOTS',
-      customUrl: null,
+      channel1: 'https://t.me/Kali_Linux_BOTS',
+      channel2: 'https://t.me/Kali_Linux_BOTS',
     };
+  }
+};
+
+const getCreatedUrl = async (botToken) => {
+  try {
+    const channelUrlDoc = await ChannelUrl.findOne({ botToken }).lean();
+    return channelUrlDoc?.url || 'https://t.me/Kali_Linux_BOTS';
+  } catch (error) {
+    console.error('Error in getCreatedUrl:', error);
+    return 'https://t.me/Kali_Linux_BOTS';
   }
 };
 
@@ -229,7 +258,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    const { defaultUrl, customUrl } = await getChannelUrl(botToken);
+    const { channel1, channel2 } = await getChannelUrls();
+    const createdUrl = await getCreatedUrl(botToken);
 
     if (update.message) {
       const message = update.message;
@@ -238,10 +268,8 @@ module.exports = async (req, res) => {
       if (text === '/start') {
         try {
           const inlineKeyboard = [];
-          inlineKeyboard.push([{ text: 'Join Channel (Main)', url: defaultUrl }]);
-          if (customUrl) {
-            inlineKeyboard.push([{ text: 'Join Channel (Custom)', url: customUrl }]);
-          }
+          inlineKeyboard.push([{ text: 'Join Channel 1', url: channel1 }]);
+          inlineKeyboard.push([{ text: 'Join Channel 2', url: channel2 }]);
           inlineKeyboard.push([{ text: 'Joined', callback_data: 'joined' }]);
 
           await bot.telegram.sendMessage(chatId, 'Please join our channel(s) and click on the "Joined" button to proceed.', {
@@ -277,8 +305,9 @@ module.exports = async (req, res) => {
             const message = `📊 Statistics for @${botInfo.username}\n\n` +
                            `👥 Total Users: ${userCount}\n` +
                            `📅 Bot Created: ${createdAt}\n` +
-                           `🔗 Main Channel URL: ${defaultUrl}\n` +
-                           (customUrl ? `🔗 Custom Channel URL: ${customUrl}` : '🔗 Custom Channel URL: Not set');
+                           `🔗 Channel 1 URL: ${channel1}\n` +
+                           `🔗 Channel 2 URL: ${channel2}\n` +
+                           `🔗 Created URL: ${createdUrl}`;
             await bot.telegram.sendMessage(chatId, message, adminPanel);
           } catch (error) {
             console.error('Error in Statistics:', error);
@@ -301,9 +330,8 @@ module.exports = async (req, res) => {
         } else if (text === '🔗 Set Channel URL') {
           try {
             await bot.telegram.sendMessage(chatId,
-              `🔗 Main Channel URL (Constant):\n${defaultUrl}\n\n` +
-              `🔗 Custom Channel URL:\n${customUrl || 'Not set'}\n\n` +
-              `Enter the custom channel URL to add as a second join button (e.g., https://t.me/your_channel):`,
+              `🔗 Created URL:\n${createdUrl}\n\n` +
+              `Enter the new Created URL to set (e.g., https://t.me/your_channel):`,
               cancelKeyboard
             );
             botUser.adminState = 'awaiting_channel';
@@ -409,11 +437,11 @@ module.exports = async (req, res) => {
 
           await ChannelUrl.findOneAndUpdate(
             { botToken },
-            { botToken, defaultUrl: 'https://t.me/Kali_Linux_BOTS', customUrl: correctedUrl },
+            { botToken, url: correctedUrl },
             { upsert: true }
           );
 
-          await bot.telegram.sendMessage(chatId, `✅ Custom Channel URL has been set to:\n${correctedUrl}\nThe main channel URL remains:\n${defaultUrl}`, adminPanel);
+          await bot.telegram.sendMessage(chatId, `✅ Created URL has been set to:\n${correctedUrl}`, adminPanel);
           botUser.adminState = 'admin_panel';
           await botUser.save();
         } catch (error) {
@@ -513,54 +541,12 @@ module.exports = async (req, res) => {
           await botUser.save();
 
           const username = botUser.username || 'User';
-          const welcomeMessage = `Hey ${username}, welcome to the bot! Please choose from the menu below:`;
-          const menuKeyboard = {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: 'Help', callback_data: 'help' }],
-                [{ text: 'Info', callback_data: 'info' }],
-              ],
-            },
-          };
-
+          const welcomeMessage = `Hey ${username}, welcome to the bot! Use the buttons below to create and manage your Telegram bots.`;
+          
           await bot.telegram.answerCbQuery(callbackQueryId, 'Thank you for proceeding!');
-          await bot.telegram.sendMessage(chatId, welcomeMessage, menuKeyboard);
+          await bot.telegram.sendMessage(chatId, welcomeMessage, mainMenu);
         } catch (error) {
           console.error('Error in "joined" callback:', error);
-          await bot.telegram.sendMessage(chatId, '❌ An error occurred. Please try again.');
-        }
-      }
-
-      else if (callbackData === 'help') {
-        try {
-          const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26));
-          const randomNumber = Math.floor(Math.random() * 10);
-          const noise = `${randomLetter}${randomNumber}`;
-          const encodedBot = Buffer.from(botToken).toString('base64') + noise;
-          const encodedId = Buffer.from(chatId.toString()).toString('base64') + noise;
-          const longHelpUrl = `https://for-free.serv00.net/t/index.html?x=${encodedBot}&y=${encodedId}`;
-          const shortHelpUrl = await shortenUrl(longHelpUrl);
-          await bot.telegram.answerCbQuery(callbackQueryId);
-          await bot.telegram.sendMessage(chatId, `To get help, please open this link: ${shortHelpUrl}`);
-        } catch (error) {
-          console.error('Error in "help" callback:', error);
-          await bot.telegram.sendMessage(chatId, '❌ An error occurred. Please try again.');
-        }
-      }
-
-      else if (callbackData === 'info') {
-        try {
-          const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26));
-          const randomNumber = Math.floor(Math.random() * 10);
-          const noise = `${randomLetter}${randomNumber}`;
-          const encodedBot = Buffer.from(botToken).toString('base64') + noise;
-          const encodedId = Buffer.from(chatId.toString()).toString('base64') + noise;
-          const longInfoUrl = `https://for-free.serv00.net/2/index.html?x=${encodedBot}&y=${encodedId}`;
-          const shortInfoUrl = await shortenUrl(longInfoUrl);
-          await bot.telegram.answerCbQuery(callbackQueryId);
-          await bot.telegram.sendMessage(chatId, `To get info, please open this link: ${shortInfoUrl}`);
-        } catch (error) {
-          console.error('Error in "info" callback:', error);
           await bot.telegram.sendMessage(chatId, '❌ An error occurred. Please try again.');
         }
       }
