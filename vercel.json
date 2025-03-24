@@ -12,8 +12,8 @@
   ],
   "routes": [
     {
-      "src": "/created(.*)",
-      "dest": "created.js"
+      "src": "/(created|createdB|createdC)(.*)",
+      "dest": "$1.js"
     },
     {
       "src": "/(.*)",
