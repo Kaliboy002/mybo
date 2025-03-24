@@ -23,6 +23,7 @@ mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
     process.exit(1);
   });
 
+// MongoDB Schemas
 const UserSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   step: { type: String, default: 'none' },
@@ -31,6 +32,7 @@ const UserSchema = new mongoose.Schema({
   username: { type: String },
   referredBy: { type: String, default: 'None' },
   isFirstStart: { type: Boolean, default: true },
+  referralCount: { type: Number, default: 0 }, // Track number of successful referrals
 });
 
 const BotSchema = new mongoose.Schema({
@@ -38,7 +40,7 @@ const BotSchema = new mongoose.Schema({
   username: { type: String, required: true },
   creatorId: { type: String, required: true },
   creatorUsername: { type: String },
-  template: { type: String, default: 'created' }, // Added template field to identify bot type
+  template: { type: String, default: 'created' },
   createdAt: { type: Number, default: () => Math.floor(Date.now() / 1000) },
 });
 
@@ -58,12 +60,24 @@ const BotLimitSchema = new mongoose.Schema({
   limit: { type: Number, default: 0 },
 });
 
+const BotModeSchema = new mongoose.Schema({
+  mode: { type: String, default: 'normal' }, // 'normal', 'referral', 'lock'
+  referralLimit: { type: Number, default: 0 }, // Required referrals in referral mode
+});
+
+const VipUserSchema = new mongoose.Schema({
+  userId: { type: String, required: true, unique: true },
+});
+
 const User = mongoose.model('User', UserSchema);
 const Bot = mongoose.model('Bot', BotSchema);
 const BotUser = mongoose.model('BotUser', BotUserSchema);
 const ChannelUrl = mongoose.model('ChannelUrl', ChannelUrlSchema);
 const BotLimit = mongoose.model('BotLimit', BotLimitSchema);
+const BotMode = mongoose.model('BotMode', BotModeSchema);
+const VipUser = mongoose.model('VipUser', VipUserSchema);
 
+// Keyboards
 const mainMenu = {
   reply_markup: {
     keyboard: [
@@ -85,6 +99,8 @@ const ownerAdminPanel = {
       [{ text: '🔓 Unlock' }],
       [{ text: '🗑️ Remove Bot' }],
       [{ text: '📏 Limit Bot' }],
+      [{ text: '🔧 Bot Mode' }], // New button
+      [{ text: '👑 Add VIP User' }], // New button
       [{ text: '↩️ Back' }],
     ],
     resize_keyboard: true,
@@ -103,6 +119,26 @@ const backKeyboard = {
     keyboard: [[{ text: 'Back' }]],
     resize_keyboard: true,
   },
+};
+
+// Helper Functions
+const getBotModeKeyboard = async () => {
+  const botMode = await BotMode.findOne() || { mode: 'normal' };
+  const referralModeText = botMode.mode === 'referral' ? 'Referral Mode ✔️' : 'Referral Mode';
+  const lockModeText = botMode.mode === 'lock' ? 'Lock Mode ✔️' : 'Lock Mode';
+  const normalModeText = botMode.mode === 'normal' ? 'Normal Mode ✔️' : 'Normal Mode';
+
+  return {
+    reply_markup: {
+      keyboard: [
+        [{ text: referralModeText }],
+        [{ text: lockModeText }],
+        [{ text: normalModeText }],
+        [{ text: '↩️ Back' }],
+      ],
+      resize_keyboard: true,
+    },
+  };
 };
 
 const validateBotToken = async (token) => {
@@ -243,6 +279,7 @@ const getRelativeTime = (timestamp) => {
   return `${dateStr}, ${Math.floor(diff / 86400)} days ago`;
 };
 
+// /start Command
 makerBot.start(async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -264,7 +301,17 @@ makerBot.start(async (ctx) => {
         username,
         referredBy,
         isFirstStart: true,
+        referralCount: 0,
       });
+
+      // Increment referral count for the referrer if referredBy is a user ID
+      if (referredBy !== 'None' && /^\d+$/.test(referredBy)) {
+        const referrer = await User.findOne({ userId: referredBy });
+        if (referrer) {
+          referrer.referralCount = (referrer.referralCount || 0) + 1;
+          await referrer.save();
+        }
+      }
     }
 
     if (user.isFirstStart) {
@@ -287,6 +334,7 @@ makerBot.start(async (ctx) => {
   }
 });
 
+// Create Bot
 makerBot.hears('🛠 Create Bot', async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -296,6 +344,49 @@ makerBot.hears('🛠 Create Bot', async (ctx) => {
       return;
     }
 
+    // Check if user is a VIP
+    const isVip = await VipUser.findOne({ userId });
+    if (isVip) {
+      // VIP users can create bots regardless of mode
+      const botLimitDoc = await BotLimit.findOne();
+      const botLimit = botLimitDoc ? botLimitDoc.limit : 0;
+      const userBotCount = await Bot.countDocuments({ creatorId: userId });
+
+      if (botLimit > 0 && userBotCount >= botLimit) {
+        ctx.reply(`❌ You can only create ${botLimit} bots.`, mainMenu);
+        return;
+      }
+
+      ctx.reply('Send your bot token from @BotFather to make your bot:', backKeyboard);
+      await User.findOneAndUpdate({ userId }, { step: 'create_bot' });
+      return;
+    }
+
+    // Check bot mode
+    const botMode = await BotMode.findOne() || { mode: 'normal', referralLimit: 0 };
+
+    if (botMode.mode === 'lock') {
+      ctx.reply('❌ You can\'t make bot. To make bot you can contact the owner of bot @Kaliboy002', mainMenu);
+      return;
+    }
+
+    if (botMode.mode === 'referral') {
+      const requiredReferrals = botMode.referralLimit || 0;
+      const userReferrals = user.referralCount || 0;
+
+      if (userReferrals < requiredReferrals) {
+        const botLink = `https://t.me/${(await makerBot.telegram.getMe()).username}?start=${userId}`;
+        ctx.reply(
+          `❌ You don't have enough invites to make a bot. Please invite (${requiredReferrals}) others to start and join bot to unlock it.\n` +
+          `Your total invite = ${userReferrals}\n` +
+          `Your invite link = ${botLink}`,
+          mainMenu
+        );
+        return;
+      }
+    }
+
+    // Normal mode or passed referral check
     const botLimitDoc = await BotLimit.findOne();
     const botLimit = botLimitDoc ? botLimitDoc.limit : 0;
     const userBotCount = await Bot.countDocuments({ creatorId: userId });
@@ -313,6 +404,7 @@ makerBot.hears('🛠 Create Bot', async (ctx) => {
   }
 });
 
+// Delete Bot
 makerBot.hears('🗑️ Delete Bot', async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -330,6 +422,7 @@ makerBot.hears('🗑️ Delete Bot', async (ctx) => {
   }
 });
 
+// List My Bots
 makerBot.hears('📋 My Bots', async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -356,6 +449,7 @@ makerBot.hears('📋 My Bots', async (ctx) => {
   }
 });
 
+// /panel Command (Owner Only)
 makerBot.command('panel', async (ctx) => {
   const userId = ctx.from.id.toString();
   if (userId !== OWNER_ID) {
@@ -372,6 +466,7 @@ makerBot.command('panel', async (ctx) => {
   }
 });
 
+// Handle Text Input
 makerBot.on('text', async (ctx) => {
   const userId = ctx.from.id.toString();
   const text = ctx.message.text;
@@ -467,10 +562,78 @@ makerBot.on('text', async (ctx) => {
           cancelKeyboard
         );
         await User.findOneAndUpdate({ userId }, { adminState: 'awaiting_bot_limit' });
+      } else if (text === '🔧 Bot Mode') {
+        ctx.reply('Choose the mode of Bot Maker from below buttons:', await getBotModeKeyboard());
+        await User.findOneAndUpdate({ userId }, { adminState: 'bot_mode' });
+      } else if (text === '👑 Add VIP User') {
+        ctx.reply('👑 Enter the user ID of the account you want to add as a VIP user (exempt from mode restrictions):', cancelKeyboard);
+        await User.findOneAndUpdate({ userId }, { adminState: 'awaiting_vip_user' });
       } else if (text === '↩️ Back') {
         ctx.reply('↩️ Back to main menu.', mainMenu);
         await User.findOneAndUpdate({ userId }, { step: 'none', adminState: 'none' });
       }
+    }
+
+    else if (userId === OWNER_ID && user.adminState === 'bot_mode') {
+      if (text === '↩️ Back') {
+        ctx.reply('↩️ Back to admin panel.', ownerAdminPanel);
+        await User.findOneAndUpdate({ userId }, { adminState: 'admin_panel' });
+        return;
+      }
+
+      if (text.includes('Referral Mode')) {
+        ctx.reply('📩 Enter the number of referrals required to unlock bot creation (e.g., 3):', cancelKeyboard);
+        await User.findOneAndUpdate({ userId }, { adminState: 'awaiting_referral_limit' });
+      } else if (text.includes('Lock Mode')) {
+        await BotMode.findOneAndUpdate({}, { mode: 'lock', referralLimit: 0 }, { upsert: true });
+        ctx.reply('✅ Lock Mode activated. Users cannot create bots (except VIP users).', await getBotModeKeyboard());
+      } else if (text.includes('Normal Mode')) {
+        await BotMode.findOneAndUpdate({}, { mode: 'normal', referralLimit: 0 }, { upsert: true });
+        ctx.reply('✅ Normal Mode activated. Users can create bots without restrictions.', await getBotModeKeyboard());
+      }
+    }
+
+    else if (userId === OWNER_ID && user.adminState === 'awaiting_referral_limit') {
+      if (text === 'Cancel') {
+        ctx.reply('↩️ Referral mode setting cancelled.', await getBotModeKeyboard());
+        await User.findOneAndUpdate({ userId }, { adminState: 'bot_mode' });
+        return;
+      }
+
+      const limit = parseInt(text.trim(), 10);
+      if (isNaN(limit) || limit < 0) {
+        ctx.reply('❌ Invalid number. Please enter a valid number (e.g., 3):', cancelKeyboard);
+        return;
+      }
+
+      await BotMode.findOneAndUpdate({}, { mode: 'referral', referralLimit: limit }, { upsert: true });
+      ctx.reply(`✅ Referral Mode activated. Users need ${limit} referrals to create bots.`, await getBotModeKeyboard());
+      await User.findOneAndUpdate({ userId }, { adminState: 'bot_mode' });
+    }
+
+    else if (userId === OWNER_ID && user.adminState === 'awaiting_vip_user') {
+      if (text === 'Cancel') {
+        ctx.reply('↩️ Add VIP user action cancelled.', ownerAdminPanel);
+        await User.findOneAndUpdate({ userId }, { adminState: 'admin_panel' });
+        return;
+      }
+
+      const targetUserId = text.trim();
+      if (!/^\d+$/.test(targetUserId)) {
+        ctx.reply('❌ Invalid user ID. Please provide a numeric user ID (only numbers).', cancelKeyboard);
+        return;
+      }
+
+      const targetUser = await User.findOne({ userId: targetUserId });
+      if (!targetUser) {
+        ctx.reply('❌ User not found.', ownerAdminPanel);
+        await User.findOneAndUpdate({ userId }, { adminState: 'admin_panel' });
+        return;
+      }
+
+      await VipUser.findOneAndUpdate({ userId: targetUserId }, { userId: targetUserId }, { upsert: true });
+      ctx.reply(`✅ User ${targetUserId} has been added as a VIP user.`, ownerAdminPanel);
+      await User.findOneAndUpdate({ userId }, { adminState: 'admin_panel' });
     }
 
     else if (userId === OWNER_ID && user.adminState === 'awaiting_bot_limit') {
@@ -630,7 +793,7 @@ makerBot.on('text', async (ctx) => {
         return;
       }
 
-      const webhookSet = await setWebhook(text, 'created'); // Specify template
+      const webhookSet = await setWebhook(text, 'created');
       if (!webhookSet) {
         ctx.reply('❌ Failed to set up the bot. Please try again.', mainMenu);
         await User.findOneAndUpdate({ userId }, { step: 'none' });
@@ -643,7 +806,7 @@ makerBot.on('text', async (ctx) => {
         username: botInfo.username,
         creatorId: userId,
         creatorUsername: ctx.from.username || ctx.from.first_name,
-        template: 'created', // Store the template name
+        template: 'created',
       });
 
       const totalBots = await Bot.countDocuments();
@@ -692,42 +855,8 @@ makerBot.on('text', async (ctx) => {
   }
 });
 
-makerBot.command('clear', async (ctx) => {
-  const userId = ctx.from.id.toString();
-  if (userId !== OWNER_ID) {
-    console.log('Unauthorized access to /clear');
-    ctx.reply('❌ You are not authorized to use this command.');
-    return;
-  }
 
-  try {
-    const usersResult = await User.deleteMany({});
-    const botsResult = await Bot.deleteMany({});
-    const botUsersResult = await BotUser.deleteMany({});
-    const channelUrlsResult = await ChannelUrl.deleteMany({});
-    const botLimitsResult = await BotLimit.deleteMany({});
-
-    console.log('All data cleared successfully');
-    console.log(`Deleted ${usersResult.deletedCount} users`);
-    console.log(`Deleted ${botsResult.deletedCount} bots`);
-    console.log(`Deleted ${botUsersResult.deletedCount} bot users`);
-    console.log(`Deleted ${channelUrlsResult.deletedCount} channel URLs`);
-    console.log(`Deleted ${botLimitsResult.deletedCount} bot limits`);
-
-    ctx.reply(
-      `✅ All data has been cleared. Bot Maker is reset.\n` +
-      `👥 Users deleted: ${usersResult.deletedCount}\n` +
-      `🤖 Bots deleted: ${botsResult.deletedCount}\n` +
-      `👤 Bot Users deleted: ${botUsersResult.deletedCount}\n` +
-      `🔗 Channel URLs deleted: ${channelUrlsResult.deletedCount}\n` +
-      `📏 Bot Limits deleted: ${botLimitsResult.deletedCount}`
-    );
-  } catch (error) {
-    console.error('Error during /clear:', error);
-    ctx.reply(`❌ Failed to clear data: ${error.message}`);
-  }
-});
-
+// Vercel Handler
 module.exports = async (req, res) => {
   try {
     if (req.method === 'POST') {
