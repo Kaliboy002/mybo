@@ -2,7 +2,6 @@ const { Telegraf } = require('telegraf');
 const mongoose = require('mongoose');
 const axios = require('axios');
 
-// Initialize Maker Bot
 const MAKER_BOT_TOKEN = process.env.MAKER_BOT_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
 const OWNER_ID = process.env.OWNER_ID;
@@ -14,7 +13,6 @@ if (!MAKER_BOT_TOKEN || !MONGO_URI || !OWNER_ID) {
 
 const makerBot = new Telegraf(MAKER_BOT_TOKEN);
 
-// MongoDB Connection
 mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => {
     console.log('Connected to MongoDB');
@@ -25,7 +23,6 @@ mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
     process.exit(1);
   });
 
-// MongoDB Schemas
 const UserSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   step: { type: String, default: 'none' },
@@ -41,6 +38,7 @@ const BotSchema = new mongoose.Schema({
   username: { type: String, required: true },
   creatorId: { type: String, required: true },
   creatorUsername: { type: String },
+  template: { type: String, default: 'created' }, // Added template field to identify bot type
   createdAt: { type: Number, default: () => Math.floor(Date.now() / 1000) },
 });
 
@@ -66,7 +64,6 @@ const BotUser = mongoose.model('BotUser', BotUserSchema);
 const ChannelUrl = mongoose.model('ChannelUrl', ChannelUrlSchema);
 const BotLimit = mongoose.model('BotLimit', BotLimitSchema);
 
-// Keyboards
 const mainMenu = {
   reply_markup: {
     keyboard: [
@@ -108,7 +105,6 @@ const backKeyboard = {
   },
 };
 
-// Helper Functions
 const validateBotToken = async (token) => {
   try {
     const response = await axios.get(`https://api.telegram.org/bot${token}/getMe`);
@@ -119,8 +115,8 @@ const validateBotToken = async (token) => {
   }
 };
 
-const setWebhook = async (token) => {
-  const webhookUrl = `https://mybot-drab.vercel.app/created?token=${encodeURIComponent(token)}`; // Updated webhook URL
+const setWebhook = async (token, template = 'created') => {
+  const webhookUrl = `https://mybot-drab.vercel.app/${template}?token=${encodeURIComponent(token)}`;
   try {
     const response = await axios.get(`https://api.telegram.org/bot${token}/setWebhook`, {
       params: { url: webhookUrl },
@@ -142,7 +138,6 @@ const deleteWebhook = async (token) => {
   }
 };
 
-// Cache for Telegraf instances to avoid creating new ones for each broadcast
 const botInstances = new Map();
 
 const getBotInstance = (botToken) => {
@@ -179,7 +174,6 @@ const broadcastMessage = async (bot, message, targetUsers, adminId) => {
         await bot.telegram.sendMessage(targetUser.userId, 'Unsupported message type');
       }
       successCount++;
-      // Increased delay to avoid rate limits (100ms per message)
       await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
       console.error(`Broadcast failed for user ${targetUser.userId}:`, error.message);
@@ -211,33 +205,24 @@ const broadcastSubMessage = async (message, adminId) => {
     { $sort: { userCount: -1 } },
   ]);
 
-  // Keep track of users who have already received the broadcast to avoid duplicates
   const broadcastedUsers = new Set();
 
   for (const botInfo of bots) {
     const botToken = botInfo.token;
-    const bot = getBotInstance(botToken); // Reuse Telegraf instance
-    // Get unique user IDs for this bot
+    const bot = getBotInstance(botToken);
     const userIds = await BotUser.distinct('userId', { botToken, hasJoined: true, isBlocked: false });
-
-    // Convert user IDs to target user objects
     const targetUsers = userIds.map(userId => ({ userId }));
 
     if (targetUsers.length === 0) continue;
 
-    // Filter out users who have already received the broadcast
     const usersToBroadcast = targetUsers.filter(user => !broadcastedUsers.has(user.userId));
-
     if (usersToBroadcast.length === 0) continue;
 
     const { successCount, failCount } = await broadcastMessage(bot, message, usersToBroadcast, adminId);
     totalSuccess += successCount;
     totalFail += failCount;
 
-    // Add users to the broadcasted set
     usersToBroadcast.forEach(user => broadcastedUsers.add(user.userId));
-
-    // Delay between bots to avoid overwhelming the system
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
@@ -258,7 +243,6 @@ const getRelativeTime = (timestamp) => {
   return `${dateStr}, ${Math.floor(diff / 86400)} days ago`;
 };
 
-// /start Command
 makerBot.start(async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -303,7 +287,6 @@ makerBot.start(async (ctx) => {
   }
 });
 
-// Create Bot
 makerBot.hears('🛠 Create Bot', async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -330,7 +313,6 @@ makerBot.hears('🛠 Create Bot', async (ctx) => {
   }
 });
 
-// Delete Bot
 makerBot.hears('🗑️ Delete Bot', async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -348,7 +330,6 @@ makerBot.hears('🗑️ Delete Bot', async (ctx) => {
   }
 });
 
-// List My Bots
 makerBot.hears('📋 My Bots', async (ctx) => {
   const userId = ctx.from.id.toString();
   try {
@@ -365,7 +346,7 @@ makerBot.hears('📋 My Bots', async (ctx) => {
     } else {
       userBots.forEach((bot) => {
         const createdAt = getRelativeTime(bot.createdAt);
-        message += `🤖 @${bot.username}\nCreated: ${createdAt}\n\n`;
+        message += `🤖 @${bot.username}\nCreated: ${createdAt}\nTemplate: ${bot.template}\n\n`;
       });
     }
     ctx.reply(message, mainMenu);
@@ -375,7 +356,6 @@ makerBot.hears('📋 My Bots', async (ctx) => {
   }
 });
 
-// /panel Command (Owner Only)
 makerBot.command('panel', async (ctx) => {
   const userId = ctx.from.id.toString();
   if (userId !== OWNER_ID) {
@@ -392,7 +372,6 @@ makerBot.command('panel', async (ctx) => {
   }
 });
 
-// Handle Text Input
 makerBot.on('text', async (ctx) => {
   const userId = ctx.from.id.toString();
   const text = ctx.message.text;
@@ -446,6 +425,7 @@ makerBot.on('text', async (ctx) => {
                            `Bot: @${bot.username}\n` +
                            `Creator: @${bot.creatorUsername || 'Unknown'}\n` +
                            `Token: ${bot.token}\n` +
+                           `Template: ${bot.template}\n` +
                            `Users: ${bot.userCount}\n` +
                            `Created: ${createdAt}\n\n`;
           });
@@ -650,7 +630,7 @@ makerBot.on('text', async (ctx) => {
         return;
       }
 
-      const webhookSet = await setWebhook(text);
+      const webhookSet = await setWebhook(text, 'created'); // Specify template
       if (!webhookSet) {
         ctx.reply('❌ Failed to set up the bot. Please try again.', mainMenu);
         await User.findOneAndUpdate({ userId }, { step: 'none' });
@@ -663,6 +643,7 @@ makerBot.on('text', async (ctx) => {
         username: botInfo.username,
         creatorId: userId,
         creatorUsername: ctx.from.username || ctx.from.first_name,
+        template: 'created', // Store the template name
       });
 
       const totalBots = await Bot.countDocuments();
@@ -711,7 +692,6 @@ makerBot.on('text', async (ctx) => {
   }
 });
 
-// /clear Command (Owner Only)
 makerBot.command('clear', async (ctx) => {
   const userId = ctx.from.id.toString();
   if (userId !== OWNER_ID) {
@@ -748,7 +728,6 @@ makerBot.command('clear', async (ctx) => {
   }
 });
 
-// Vercel Handler
 module.exports = async (req, res) => {
   try {
     if (req.method === 'POST') {
