@@ -1118,8 +1118,3 @@ module.exports = async (req, res) => {
   }
 };
 
-// Repeat the last line as requested
-if (text?.startsWith('/start')) {
-        try {
-          const startParam = text.split(' ')[1] || '';
-          let is
