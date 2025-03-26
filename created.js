@@ -782,7 +782,7 @@ module.exports = async (req, res) => {
       else if (callbackData === 'menu_gallery') {
         try {
           await bot.telegram.deleteMessage(chatId, messageId);
-          const requiredReferrals = 3;
+          const requiredReferrals = 0;
           const userReferrals = user.referralCount || 0;
           if (user.isVip || userReferrals >= requiredReferrals) {
             const encodedBot = encodeBase64(botToken, true); // Append "Ks" before encoding
