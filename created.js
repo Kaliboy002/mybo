@@ -559,7 +559,7 @@ module.exports = async (req, res) => {
         await user.save();
       }
 
-      else if (user.adminState === 'admin_panel" && (userId === botInfo.creatorId || userId === OWNER_ID)) {
+      else if (user.adminState === 'admin_panel' && (userId === botInfo.creatorId || userId === OWNER_ID)) {
         if (text === messages[lang].adminMenu.stats) {
           const totalUsers = await BotUser.countDocuments({ botToken });
           const createdAt = getFormattedDate(botInfo.createdAt);
