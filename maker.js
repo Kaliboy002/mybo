@@ -110,7 +110,7 @@ const translations = {
     botLimitReached: (limit) => `❌ You can only create **${limit}** bots.`,
     lockMode: '❌ You can\'t make bot. To make bot you can contact the owner of bot @Kaliboy002',
     referralMode: (required, current, link) =>
-      `❌ You don't have enough invites to make a bot. Please invite (**${required}**) others to start and join bot to unlock it.\n` +
+      `❌ You don't havey enough invites to make a bot. Please invite (**${required}**) others to start and join bot to unlock it.\n` +
       `Your total invite = **${current}**\n` +
       `Your invite link = \`${link}\``,
     invalidToken: '❌ Invalid bot token. Please try again:',
